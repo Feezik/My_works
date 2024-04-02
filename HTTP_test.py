@@ -1,85 +1,59 @@
-import requests
-import json
-from datetime import datetime
+import time
+import csv
+from selenium import webdriver
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.common.action_chains import ActionChains
+
+# Зайти на https://www.nseindia.com
+driver= webdriver.Firefox(service=Service(r'C:\Program Files\Mozilla Firefoxx\geckodriver.exe'))
+driver.get('https://www.nseindia.com/')
+time.sleep(3)
+
+# Навестись (hover) на MARKET DATA
+market_data_menu = driver.find_element('css selector', '#link_2')
+actions = ActionChains(driver)
+actions.move_to_element(market_data_menu).perform()
+time.sleep(3)
+
+# Кликнуть на Pre-Open Market 
+pre_open_market = driver.find_element('css selector', 'a[href="/market-data/pre-open-market-cm-and-emerge-market"]')
+pre_open_market.click()
+time.sleep(3)
 
 
-# Параметры прокси (нужно проверить работает ли прокси сервер)
-proxy_host = "189.240.60.168"
-proxy_port = 9090
+# Спарсить данные Final Price по всем позициям на странице и вывести их в csv файл.
+with open('final_prices.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(["Name", "Price"])
 
-# URL для получения твитов пользователя
-url = 'https://api.twitter.com/graphql/GA3HM3gm-TtZJNVsvnF5Yg/UserTweets'
+    
+for i in range(1, 51):
+    name_element = driver.find_element('css selector', f'#livePreTable > tbody > tr:nth-child({i}) > td:nth-child(2) > a')
+    price_element = driver.find_element('css selector', f'#livePreTable > tbody > tr:nth-child({i}) > td.bold.text-right')
+    print("Парсинг строки:", i)
 
-
-# Настройка прокси
-proxies = {
-    "http": f"http://{proxy_host}:{proxy_port}",
-}
-
-# Параметры запроса для удаления не нужных данных
-query_params = {
-    'variables': '{"userId":"44196397","count":10,"includePromotedContent":false,"withQuickPromoteEligibilityTweetFields":false ,"withVoice":true,"withV2Timeline":true}',
-    'features': '{"responsive_web_graphql_exclude_directive_enabled":false,"verified_phone_label_enabled":false,"creator_subscriptions_tweet_preview_api_enabled":false,"responsive_web_graphql_timeline_navigation_enabled":false,"responsive_web_graphql_skip_user_profile_image_extensions_enabled":false,"communities_web_enable_tweet_community_results_fetch":false,"c9s_tweet_anatomy_moderator_badge_enabled":false,"tweetypie_unmention_optimization_enabled":false,"responsive_web_edit_tweet_api_enabled":false,"graphql_is_translatable_rweb_tweet_is_translatable_enabled":false,"view_counts_everywhere_api_enabled":false,"longform_notetweets_consumption_enabled":false,"responsive_web_twitter_article_tweet_consumption_enabled":false,"tweet_awards_web_tipping_enabled":false,"freedom_of_speech_not_reach_fetch_enabled":false,"standardized_nudges_misinfo":false,"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled":false,"rweb_video_timestamps_enabled":false,"longform_notetweets_rich_text_read_enabled":false,"longform_notetweets_inline_media_enabled":false,"responsive_web_enhance_cards_enabled":false}',
-    'fieldToggles': '{"withArticlePlainText":false}'
-}
-
-# Заголовки запроса
-headers = {
-    'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-    'X-Guest-Token': '1774743496819081431' # Нужно проверить токен 
-}
-
-# Отправить GET-запрос с токеном авторизации
-response = requests.get(url, proxies=proxies, params=query_params, headers=headers)
-
-if response.status_code == 200:
-    # Разобрать JSON-ответ
-    data = response.json()
-    # Сохранить JSON-ответ в файл
-    with open('twitter_response_1.json', 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-    print('Ответ сохранен в файл twitter_response_1.json')
+    with open('final_prices.csv', 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow([name_element.text, price_element.text])
 
 
-else:
-    print(f'Ошибка: {response.status_code}')
+# Cымитировать небольшой пользовательский сценарий использования сайта      
+driver.find_element('css selector', '#link_0').click()
+time.sleep(2)
+driver.find_element('css selector', '#tabList_NIFTYBANK').click()
+time.sleep(2)
+driver.execute_script("window.scrollBy(0, 500);")
+time.sleep(5)
+driver.find_element('css selector', '#for-investors').click()
+time.sleep(2)
+driver.find_element('css selector', '#for-corporate').click()
+time.sleep(4)
+driver.find_element('css selector', '#for-corporate').click()
+time.sleep(1)
+driver.execute_script("window.scrollBy(0, -500);")
+time.sleep(2)
+driver.find_element('css selector', '#tabList_NIFTYNEXT50').click()
 
-
-
-# Загрузка JSON-данных
-with open('twitter_response_1.json', 'r', encoding='utf-8') as f:
-    data = json.load(f)
-
-# Извлечение инструкций
-instructions = data['data']['user']['result']['timeline_v2']['timeline']['instructions']
-
-# Обработка твитов
-tweets = []
-for instruction in instructions:
-    if instruction['type'] == 'TimelinePinEntry':
-        entry = instruction['entry']
-        content = entry['content']
-        item_content = content['itemContent']
-
-        # Проверка типа элемента
-        if item_content['itemType'] == "TimelineTweet":
-            tweet_results = item_content['tweet_results']
-            result = tweet_results['result']
-            legacy = result['legacy']
-            full_text = legacy['full_text']
-            created_at = legacy['created_at']
-
-            # Обработка даты и времени
-            created_at_dt = datetime.strptime(created_at, '%a %b %d %H:%M:%S %z %Y')
-            print(f"Добавлен твит: {full_text}")
-
-            tweets.append((created_at_dt, full_text))
-
-# Сортировка твитов
-tweets.sort(key=lambda x: x[0], reverse=True)
-
-for i, tweet in enumerate(tweets[:10]):
-    print('--------------')
-    print(f"Твит {i + 1}: {tweet[1]}")
-    print(f"Дата публикации: {tweet[0]}")
+# Закрываем браузер
+time.sleep(5)
+driver.quit()
