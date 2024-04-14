@@ -3,45 +3,36 @@ import json
 import codecs
 from datetime import datetime
 
+def get_guest_token(bearer_token):
+    # Создание сессии для отправки запроса на получение гостевого токена
+    session = requests.Session()
+    guest_token_response = session.post("https://api.twitter.com/1.1/guest/activate.json",
+                                        headers={'authorization': f'Bearer {bearer_token}'},
+                                        timeout=5,
+                                        )
+    # Извлечение гостевого токена из ответа
+    guest_token = json.loads(guest_token_response.content)['guest_token']
+    if not guest_token:
+        raise Exception("Гостевой токен не получен")
+    return guest_token
 
-# Параметры прокси (нужно проверить работает ли прокси сервер)
-proxy_host = "189.240.60.168"
-proxy_port = 9090
+def get_tweets(url, bearer_token, guest_token, query_params, headers, proxies):
+    # Отправка GET-запроса на получение твитов
+    response = requests.get(url, proxies=proxies, params=query_params, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        return data
+    else:
+        print(f'Ошибка: {response.status_code}')
+        return None
 
-# URL для получения твитов пользователя
-url = 'https://api.twitter.com/graphql/GA3HM3gm-TtZJNVsvnF5Yg/UserTweets'
-
-
-# Настройка прокси
-proxies = {
-    "http": f"http://{proxy_host}:{proxy_port}",
-}
-
-# Параметры запроса для удаления не нужных данных
-query_params = {
-    'variables': '{"userId":"44196397","count":10,"includePromotedContent":false,"withQuickPromoteEligibilityTweetFields":false ,"withVoice":true,"withV2Timeline":true}',
-    'features': '{"responsive_web_graphql_exclude_directive_enabled":false,"verified_phone_label_enabled":false,"creator_subscriptions_tweet_preview_api_enabled":false,"responsive_web_graphql_timeline_navigation_enabled":false,"responsive_web_graphql_skip_user_profile_image_extensions_enabled":false,"communities_web_enable_tweet_community_results_fetch":false,"c9s_tweet_anatomy_moderator_badge_enabled":false,"tweetypie_unmention_optimization_enabled":false,"responsive_web_edit_tweet_api_enabled":false,"graphql_is_translatable_rweb_tweet_is_translatable_enabled":false,"view_counts_everywhere_api_enabled":false,"longform_notetweets_consumption_enabled":false,"responsive_web_twitter_article_tweet_consumption_enabled":false,"tweet_awards_web_tipping_enabled":false,"freedom_of_speech_not_reach_fetch_enabled":false,"standardized_nudges_misinfo":false,"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled":false,"rweb_video_timestamps_enabled":false,"longform_notetweets_rich_text_read_enabled":false,"longform_notetweets_inline_media_enabled":false,"responsive_web_enhance_cards_enabled":false}',
-    'fieldToggles': '{"withArticlePlainText":false}'
-}
-
-# Заголовки запроса
-headers = {
-    'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-    'X-Guest-Token': '1775100760650387743' # Нужно проверить токен 
-}
-
-# Отправить GET-запрос с токеном авторизации
-response = requests.get(url, proxies=proxies, params=query_params, headers=headers)
-
-if response.status_code == 200:
-    # Разобрать JSON-ответ
-    data = response.json()
-    
+def parse_tweets(data):
     posts = []
 
+    # Путь к инструкциям в ответе
     ROUTE_TO_INSTRUCTIONS = ['data', 'user', 'result', 'timeline_v2', 'timeline', 'instructions']
 
+    # Путь к легаси-твитам в ответе
     ROUTE_TO_TWIT_LEGACY = ['content', 'itemContent', 'tweet_results', 'result', 'legacy']
 
     instructions = data
@@ -64,6 +55,42 @@ if response.status_code == 200:
 
         posts.append((datetime.strptime(date, "%a %b %d %H:%M:%S +0000 %Y"), text))
 
+    return posts
+
+def main():
+    # Параметры прокси (нужно проверить работает ли прокси сервер)
+    proxy_host = "189.240.60.168"
+    proxy_port = 9090
+
+    # URL для получения твитов пользователя
+    url = 'https://api.twitter.com/graphql/GA3HM3gm-TtZJNVsvnF5Yg/UserTweets'
+
+    # Настройка прокси
+    proxies = {
+        "http": f"http://{proxy_host}:{proxy_port}",
+    }
+
+    bearer_token = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'
+
+    guest_token = get_guest_token(bearer_token)
+
+    # Параметры запроса для удаления не нужных данных
+    query_params = {
+        'variables': '{"userId":"44196397","count":10,"includePromotedContent":false,"withQuickPromoteEligibilityTweetFields":false ,"withVoice":true,"withV2Timeline":true}',
+        'features': '{"responsive_web_graphql_exclude_directive_enabled":false,"verified_phone_label_enabled":false,"creator_subscriptions_tweet_preview_api_enabled":false,"responsive_web_graphql_timeline_navigation_enabled":false,"responsive_web_graphql_skip_user_profile_image_extensions_enabled":false,"communities_web_enable_tweet_community_results_fetch":false,"c9s_tweet_anatomy_moderator_badge_enabled":false,"tweetypie_unmention_optimization_enabled":false,"responsive_web_edit_tweet_api_enabled":false,"graphql_is_translatable_rweb_tweet_is_translatable_enabled":false,"view_counts_everywhere_api_enabled":false,"longform_notetweets_consumption_enabled":false,"responsive_web_twitter_article_tweet_consumption_enabled":false,"tweet_awards_web_tipping_enabled":false,"freedom_of_speech_not_reach_fetch_enabled":false,"standardized_nudges_misinfo":false,"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled":false,"rweb_video_timestamps_enabled":false,"longform_notetweets_rich_text_read_enabled":false,"longform_notetweets_inline_media_enabled":false,"responsive_web_enhance_cards_enabled":false}',
+        'fieldToggles': '{"withArticlePlainText":false}'
+    }
+
+    # Заголовки запроса
+    headers = {
+        'Authorization': f'Bearer {bearer_token}',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'X-Guest-Token': str(guest_token)
+    }
+
+    data = get_tweets(url, bearer_token, guest_token, query_params, headers, proxies)
+    posts = parse_tweets(data)
+
     print("  ****  POSTS  ****  ")
     posts.sort(reverse=True)
     for post in posts[:10]:
@@ -71,5 +98,5 @@ if response.status_code == 200:
         print(post[0].strftime("%Y-%m-%d %H:%M:%S"))
         print()
 
-else:
-    print(f'Ошибка: {response.status_code}')
+if __name__ == "__main__":
+    main()
