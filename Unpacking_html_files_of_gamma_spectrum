@@ -1,0 +1,61 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import xml.etree.ElementTree as ET
+import Mall_filters as mf
+
+# Загрузка и разбор XML-файла
+tree = ET.parse('E:/Diplom/U-238.xml')
+root = tree.getroot()
+
+# Получение имени устройства
+Device = root.find('.//DeviceConfigReference/Name').text
+
+# Получение коэффициентов
+Coefficients = root.find('.//EnergyCalibration/Coefficients')
+a0 = float(Coefficients.findall('Coefficient')[0].text)
+a1 = float(Coefficients.findall('Coefficient')[1].text)
+a2 = float(Coefficients.findall('Coefficient')[2].text)
+
+# Получение спектров
+AggregatedSpectrum = np.array([float(x.text) for x in root.findall('.//Spectrum/DataPoint')])
+
+# Временное использование нулевого фона, если фон отсутствует в XML
+BackgroundSpectrum = np.zeros_like(AggregatedSpectrum)
+
+# Вычисление спектра источника
+SourceSpectrum = AggregatedSpectrum - BackgroundSpectrum
+
+n=25
+median_filter = mf.savgol_smooth(AggregatedSpectrum,n, 2)
+
+bohman_win = mf.bohman_window(n)
+filter_BW = np.convolve(AggregatedSpectrum, bohman_win, mode='same')
+
+
+# Определение каналов и энергии
+Ch = np.arange(len(AggregatedSpectrum))
+E = a2 * Ch ** 2 + a1 * Ch + a0
+I = E > 0
+
+# Построение графиков
+plt.subplot(3, 1 , 1)
+plt.plot(E[I], np.log1p(AggregatedSpectrum[I]), color='blue', linewidth=0.5)
+plt.grid(True)
+plt.xlabel('Energy, keV', fontsize=10)
+plt.ylabel('Aggregated Spectrum', fontsize=10)
+plt.title(f'Device: {Device} \n Window length:{n}', fontsize=12)
+
+plt.subplot(3, 1, 2)
+plt.plot(E[I], np.log1p(filter_BW[I]), color='red', linewidth=0.5)
+plt.grid(True)
+plt.xlabel('Energy, keV', fontsize=10)
+plt.ylabel('Bohman window', fontsize=10)
+
+plt.subplot(3, 1, 3)
+plt.plot(E[I], np.log1p(median_filter[I]), color='red', linewidth=0.5)
+plt.grid(True)
+plt.xlabel('Energy, keV', fontsize=10)
+plt.ylabel('Savitzky-Golay filter', fontsize=10)
+
+plt.tight_layout()
+plt.show()
