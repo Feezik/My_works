@@ -1,61 +1,185 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import xml.etree.ElementTree as ET
-import Mall_filters as mf
+from scipy.signal import savgol_filter
+import pandas as pd
+import csv
 
-# Загрузка и разбор XML-файла
-tree = ET.parse('E:/Diplom/U-238.xml')
-root = tree.getroot()
+# Чтение данных из CSV-файла
+file_path = 'E:/Diplom/Natural_radium.csv'  # Замените на фактический путь к вашему файлу
+data = pd.read_csv(file_path, header=None)
 
-# Получение имени устройства
-Device = root.find('.//DeviceConfigReference/Name').text
+# Извлечение значений из первого столбца
+AggregatedSpectrum = data[0].values
 
-# Получение коэффициентов
-Coefficients = root.find('.//EnergyCalibration/Coefficients')
-a0 = float(Coefficients.findall('Coefficient')[0].text)
-a1 = float(Coefficients.findall('Coefficient')[1].text)
-a2 = float(Coefficients.findall('Coefficient')[2].text)
+# Задание коэффициентов
+a0 = 0.0
+a1 = 1.0
+a2 = 0.0
+
+# def scripts(path):
+#     # Парсинг XML-файла
+#     tree = ET.parse(path)
+#     root = tree.getroot()
+    
+#     # Получение имени устройства
+#     Device = root.find('.//DeviceConfigReference/Name').text
+    
+#     # Получение коэффициентов
+#     Coefficients = root.find('.//EnergyCalibration/Coefficients')
+#     a0 = float(Coefficients.findall('Coefficient')[0].text)
+#     a1 = float(Coefficients.findall('Coefficient')[1].text)
+#     a2 = float(Coefficients.findall('Coefficient')[2].text)
+    
+#     # Получение спектров
+#     AggregatedSpectrum = np.array([float(x.text) for x in root.findall('.//Spectrum/DataPoint')])
+#     BackgroundSpectrum = np.zeros_like(AggregatedSpectrum)
+#     SourceSpectrum = AggregatedSpectrum - BackgroundSpectrum
+    
+#     # Определение каналов и энергии
+#     Ch = np.arange(len(AggregatedSpectrum))
+#     E = a2 * Ch ** 2 + a1 * Ch + a0
+#     I = E > 0
+#     return E, I, AggregatedSpectrum, Device
+
+
+# Построение графика
+plt.figure(figsize=(10, 6))
+plt.plot(AggregatedSpectrum, label='Natural Radium', color='blue', linewidth=0.5)
+plt.xlabel('Энергия (МэВ)', fontsize=10)
+plt.ylabel('Импульс', fontsize=10)
+plt.title('Природный уран', fontsize=12)
+plt.legend()
+plt.grid(True)
+plt.show()
 
 # Получение спектров
-AggregatedSpectrum = np.array([float(x.text) for x in root.findall('.//Spectrum/DataPoint')])
-
-# Временное использование нулевого фона, если фон отсутствует в XML
 BackgroundSpectrum = np.zeros_like(AggregatedSpectrum)
-
-# Вычисление спектра источника
 SourceSpectrum = AggregatedSpectrum - BackgroundSpectrum
-
-n=25
-median_filter = mf.savgol_smooth(AggregatedSpectrum,n, 2)
-
-bohman_win = mf.bohman_window(n)
-filter_BW = np.convolve(AggregatedSpectrum, bohman_win, mode='same')
-
 
 # Определение каналов и энергии
 Ch = np.arange(len(AggregatedSpectrum))
 E = a2 * Ch ** 2 + a1 * Ch + a0
 I = E > 0
 
-# Построение графиков
-plt.subplot(3, 1 , 1)
-plt.plot(E[I], np.log1p(AggregatedSpectrum[I]), color='blue', linewidth=0.5)
-plt.grid(True)
-plt.xlabel('Energy, keV', fontsize=10)
-plt.ylabel('Aggregated Spectrum', fontsize=10)
-plt.title(f'Device: {Device} \n Window length:{n}', fontsize=12)
+# Определение пределов графика
+xmin, xmax = E[I].min(), E[I].max()
+ymin, ymax = np.log1p(AggregatedSpectrum[I]).min(), np.log1p(AggregatedSpectrum[I]).max()
 
-plt.subplot(3, 1, 2)
-plt.plot(E[I], np.log1p(filter_BW[I]), color='red', linewidth=0.5)
-plt.grid(True)
-plt.xlabel('Energy, keV', fontsize=10)
-plt.ylabel('Bohman window', fontsize=10)
+# Генерация случайных точек
+x_random = np.random.uniform(xmin, xmax, 17500)
+y_random = np.random.uniform(ymin, ymax, 17500)
 
-plt.subplot(3, 1, 3)
-plt.plot(E[I], np.log1p(median_filter[I]), color='red', linewidth=0.5)
+# Фильтрация точек под графиком
+under_graph = y_random < np.interp(x_random, E[I], np.log1p(AggregatedSpectrum[I]))
+
+x_under = x_random[under_graph]
+y_under = y_random[under_graph]
+
+# Построение графика с точками под графиком и случайными точками
+plt.figure(figsize=(10, 6))
+plt.fill_between(E[I], np.log1p(AggregatedSpectrum[I]), color='blue', linewidth=0.5)
+plt.scatter(x_random, y_random, color='grey', s=1, label='Случайные точки')
+plt.scatter(x_under, y_under, color='red', s=1, label='Точки под графиком')
 plt.grid(True)
-plt.xlabel('Energy, keV', fontsize=10)
-plt.ylabel('Savitzky-Golay filter', fontsize=10)
+plt.xlabel('Энергия (МэВ)', fontsize=10)
+plt.ylabel('Импульс', fontsize=10)
+plt.title('Равномерное распределение 17500 сгенерированных точек', fontsize=12)
+plt.legend()
+
+# Определение интервалов и максимальных значений в них
+num_intervals = 1000
+interval_edges = np.linspace(xmin, xmax, num_intervals + 1)
+max_values = np.zeros(num_intervals)
+interval_centers = (interval_edges[:-1] + interval_edges[1:]) / 2
+
+for i in range(num_intervals):
+    in_interval = (x_under >= interval_edges[i]) & (x_under < interval_edges[i + 1])
+    if np.any(in_interval):
+        max_values[i] = y_under[in_interval].max()
+
+# Определение ширины столбцов гистограммы
+bar_width = (xmax - xmin) / num_intervals
+
+# Построение гистограмм
+plt.figure(figsize=(10, 6))
+plt.bar(interval_centers, max_values, width=bar_width, color='green', align='center')
+plt.grid(True)
+plt.xlabel('Энергия (МэВ)', fontsize=10)
+plt.ylabel('Импульс', fontsize=10)
+plt.title('Модель гистограммы гамма-спектра', fontsize=12)
+plt.plot(interval_centers, max_values, '-g', linewidth=1)
+
+# Генерация оконной функции
+filter_length = 55
+poly_order = 3
+
+# Функция свертки с пропуском 0
+def custom_convolve(values, filter_weights):
+    non_zero_indices = np.where(values != 0)[0]
+    non_zero_values = values[non_zero_indices]
+    filtered_non_zero_values = np.zeros_like(non_zero_values)
+    half_length = len(filter_weights) // 2
+
+    for i in range(len(non_zero_values)):
+        start = max(0, i - half_length)
+        end = min(len(non_zero_values), i + half_length + 1)
+        window = non_zero_values[start:end]
+        weights = filter_weights[:end-start]
+        filtered_non_zero_values[i] = np.sum(window * weights) / np.sum(weights)
+    
+    result = np.zeros_like(values)
+    result[non_zero_indices] = filtered_non_zero_values
+    
+    return result
+
+# Применение фильтрации с пропуском 0
+filter_weights = savgol_filter(np.ones(filter_length), filter_length, poly_order)
+filtered_max_values_1 = custom_convolve(max_values, filter_weights)
+
+# Применение фильтрации без пропуска 0
+filtered_max_values_2 = savgol_filter(max_values, filter_length, poly_order)
+
+# Сохранение данных в CSV-файлы
+filtered_data_1 = np.vstack((interval_centers, filtered_max_values_1)).T
+filtered_data_2 = np.vstack((interval_centers, filtered_max_values_2)).T
+
+np.savetxt('filtered_data_1.csv', filtered_data_1, delimiter=',', header='Energy,Filtered_Max_Values_1', comments='')
+np.savetxt('filtered_data_2.csv', filtered_data_2, delimiter=',', header='Energy,Filtered_Max_Values_2', comments='')
+
+# Построение сглаженной модели гистограммы гамма-спектра с пропуском 0
+plt.figure(figsize=(10, 6))
+plt.bar(interval_centers, filtered_max_values_1, width=bar_width, color='purple', align='center')
+plt.grid(True)
+plt.xlabel('Энергия (МэВ)', fontsize=10)
+plt.ylabel('Импульс', fontsize=10)
+plt.title('Сглаженная модель гистограммы гамма-спектра с пропуском 0', fontsize=12)
+plt.plot(interval_centers, filtered_max_values_1, 'black', linewidth=1)
+
+# Построение сглаженной модели гистограммы гамма-спектра без пропуска 0
+plt.figure(figsize=(10, 6))
+plt.bar(interval_centers, filtered_max_values_2, width=bar_width, color='purple', align='center')
+plt.grid(True)
+plt.xlabel('Энергия (МэВ)', fontsize=10)
+plt.ylabel('Импульс', fontsize=10)
+plt.title('Сглаженная модель гистограммы гамма-спектра', fontsize=12)
+plt.plot(interval_centers, filtered_max_values_2, 'black', linewidth=1)
 
 plt.tight_layout()
 plt.show()
+
+plt.figure(figsize=(10, 5))
+plt.plot(interval_centers, filtered_max_values_1, 'r-', label='С пропуском нулевых значений')
+plt.plot(interval_centers, filtered_max_values_2, 'b--', label='Без пропуска нулевых значений')
+plt.xlabel('Энергия (МэВ)', fontsize=10)
+plt.ylabel('Импульс', fontsize=10)
+plt.title('Сравнение результатов свертки')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Вычисление ошибки методом наименьших квадратов (MSE)
+mse_1 = np.mean((max_values - filtered_max_values_1) ** 2)
+mse_2 = np.mean((max_values - filtered_max_values_2) ** 2)
+
+print(f'Ошибка методом наименьших квадратов с пропуском нулевых значений: {mse_1}')
+print(f'Ошибка методом наименьших квадратов без пропуска нулевых значений: {mse_2}')
