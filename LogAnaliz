@@ -1,0 +1,270 @@
+import sys
+import pandas as pd
+import numpy as np
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QHBoxLayout, QLabel, QFileDialog, QFrame
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from mpldatacursor import datacursor
+from PyQt5.QtGui import QFont
+from matplotlib.widgets import Cursor
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        # Установка основного окна
+        self.setWindowTitle("Графическое приложение")
+        self.setGeometry(100, 100, 1000, 800)
+
+        # Создание главного виджета
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+
+        # Основной макет
+        main_layout = QHBoxLayout()
+
+        # Левая часть с графиками и инструментами
+        graphs_layout = QVBoxLayout()
+
+        # Создание двух графиков
+        self.figure1, self.ax1 = plt.subplots()
+        self.figure2, self.ax2 = plt.subplots()
+
+        self.canvas1 = FigureCanvas(self.figure1)
+        self.canvas2 = FigureCanvas(self.figure2)
+
+        # Панели инструментов для управления графиками
+        self.toolbar1 = NavigationToolbar(self.canvas1, self)
+        self.toolbar2 = NavigationToolbar(self.canvas2, self)
+
+        # Добавляем панель инструментов и график в макет
+        graphs_layout.addWidget(self.toolbar1)
+        graphs_layout.addWidget(self.canvas1)
+        graphs_layout.addWidget(self.toolbar2)
+        graphs_layout.addWidget(self.canvas2)
+
+        # Правая часть с кнопками и инструментами
+        side_layout = QVBoxLayout()
+
+        # Кнопки
+        import_btn = QPushButton("Импорт файла")
+        export_btn = QPushButton("Экспорт файла")
+        plot_graf = QPushButton("Построить графики")
+
+        # Установка шрифта и высоты кнопок
+        button_font = QFont("Arial", 10)  # Задаем шрифт и размер
+        for button in [import_btn, export_btn, plot_graf]:
+            button.setFont(button_font)
+            button.setFixedHeight(40)  # Задаем фиксированную высоту кнопок
+
+        import_btn.clicked.connect(self.import_file)  # Привязываем функцию к кнопке
+        export_btn.clicked.connect(self.save_file)  # Привязываем функцию к кнопке
+        plot_graf.clicked.connect(self.plot_file)
+
+        # Добавляем кнопки в рамку
+        button_frame = QFrame()
+        button_layout = QVBoxLayout(button_frame)
+        button_layout.addWidget(import_btn)
+        button_layout.addWidget(export_btn)
+        button_layout.addWidget(plot_graf)
+        side_layout.addWidget(button_frame)
+
+        # Информация о выводе
+        self.output_label = QLabel("Вывод: ")
+        self.output_label.setWordWrap(True)
+        self.output_label.setFixedWidth(300)
+
+        # Добавляем вывод значений в рамку
+        value_frame = QFrame()
+        value_layout = QVBoxLayout(value_frame)
+        value_layout.addWidget(self.output_label)
+        side_layout.addWidget(value_frame)
+
+        # Добавляем блок сообщений
+        message_frame = QFrame()
+        message_layout = QVBoxLayout(message_frame)
+        self.message_output = QLabel("")
+        self.message_output.setWordWrap(True)
+        message_layout.addWidget(self.message_output)
+        side_layout.addWidget(message_frame)
+
+        # Добавляем боковую панель (кнопки) к основному макету
+        main_layout.addLayout(graphs_layout, 5)  # Отдаём 5/6 окна под графики
+        main_layout.addLayout(side_layout, 1)  # Отдаём 1/6 окна под боковую панель
+
+        # Устанавливаем основной макет
+        main_widget.setLayout(main_layout)
+
+    def import_file(self):
+        try:
+            # Диалоговое окно выбора файла для импорта
+            file_path, _ = QFileDialog.getOpenFileName(self, "Выберите файл", "", "CSV Files (*.csv);;All Files (*)")
+
+            if file_path:
+                # Чтение CSV файла
+                df = pd.read_csv(file_path, sep=';', encoding='utf-8', low_memory=False, header=None)
+
+                # Очистка и обработка столбцов
+                columns_to_clean = [7, 14, 26]
+                df = self.clean_numeric_columns(df, columns_to_clean)
+
+                # Фильтрация данных по условию
+                df = df[(df.iloc[:, 10] == 'mavlink_command_long_t')
+                        & (df.iloc[:, 26].astype(int) == 56787)
+                        & (df.iloc[:, 14].astype(int) == 3)]
+
+                # Отбор необходимых столбцов и сортировка
+                selected_columns = [0, 1, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26]
+                df_filtered = df.iloc[:, selected_columns]
+                self.df_sorted = df_filtered.sort_values(by=df_filtered.columns[1])
+
+                self.show_message("Данные успешно импортированы.")
+            else:
+                self.show_message("Файл не был выбран.")
+        except Exception as e:
+            self.show_error_message(f"Ошибка при импорте данных: {e}")
+            print(f"Ошибка при импорте данных: {e}")
+
+    def save_file(self):
+        try:
+            if not hasattr(self, 'df_sorted'):
+                self.show_message("Нет данных для экспорта!")
+                return
+
+            # Диалоговое окно для выбора имени файла для сохранения
+            file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить файл", "", "Excel Files (*.xlsx);;All Files (*)")
+
+            if file_path:
+                # Если пользователь не указал расширение, добавляем его
+                if not file_path.endswith('.xlsx'):
+                    file_path += '.xlsx'
+
+                # Преобразование указанных столбцов в числовой формат
+                column_indices = [7, 9, 11]  # Пример индексов для конвертации
+                self.df_sorted = self.convert_columns_to_numeric(self.df_sorted, column_indices)
+
+                # Сохранение данных в Excel
+                with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                    self.save_block_to_excel(self.df_sorted, block_type=1, sheet_name='БВС', writer=writer)
+                    self.save_block_to_excel(self.df_sorted, block_type=2, sheet_name='АПУ', writer=writer)
+
+                self.show_message(f"Данные успешно сохранены в файл '{file_path}'.")
+            else:
+                self.show_message("Файл не был выбран для сохранения.")
+        except Exception as e:
+            self.show_error_message(f"Ошибка при экспорте данных: {e}")
+            print(f"Ошибка при экспорте данных: {e}")
+
+    def plot_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Открыть Excel файл для графиков", "", "Excel Files (*.xlsx)")
+        if file_path:
+            df_apu = pd.read_excel(file_path, sheet_name='АПУ')
+            df_bvs = pd.read_excel(file_path, sheet_name='БВС')
+
+            max_ticks = 10
+
+            # Объединяем дату и время в один столбец
+            df_apu['datetime'] = pd.to_datetime(df_apu.iloc[:, 0].astype(str) + ' ' + df_apu.iloc[:, 1].astype(str), errors='coerce', dayfirst=True)
+            df_bvs['datetime'] = pd.to_datetime(df_bvs.iloc[:, 0].astype(str) + ' ' + df_bvs.iloc[:, 1].astype(str), errors='coerce', dayfirst=True)
+
+            self.ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M:%S.%f'))
+            self.ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M:%S.%f'))
+
+            df_apu = df_apu.dropna(subset=['datetime'])
+            df_bvs = df_bvs.dropna(subset=['datetime'])
+
+            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=1, horizOn=False)
+            self.cursor2 = Cursor(self.ax2, useblit=True, color='red', linewidth=1, horizOn=False)
+
+            self.ax1.clear()
+            self.ax1.plot(df_apu['datetime'], df_apu.iloc[:, 4], label='Линия 1')
+            self.ax1.plot(df_apu['datetime'], df_apu.iloc[:, 6], label='Линия 2')
+            self.ax1.plot(df_apu['datetime'], df_apu.iloc[:, 8], label='Линия 3')
+            self.ax1.set_title("График АПУ")
+
+            self.ax2.clear()
+            self.ax2.plot(df_bvs['datetime'], df_bvs.iloc[:, 4], label='Линия 1')
+            self.ax2.plot(df_bvs['datetime'], df_bvs.iloc[:, 6], label='Линия 2')
+            self.ax2.plot(df_bvs['datetime'], df_bvs.iloc[:, 8], label='Линия 3')
+            self.ax2.set_title("График БВС")
+
+            self.ax1.set_xticks(df_apu['datetime'][::max(len(df_apu) // max_ticks, 1)])
+            self.ax2.set_xticks(df_bvs['datetime'][::max(len(df_bvs) // max_ticks, 1)])
+
+            self.ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            self.ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+
+            self.canvas1.draw()
+            self.canvas2.draw()
+
+            def on_hover(event):
+                if event.inaxes == self.ax1:  # Наведение на график АПУ
+                    x = event.xdata
+                    if x is not None:
+                        try:
+                            x_apu = pd.to_datetime(mdates.num2date(x)).tz_localize(None)
+                            idx = (np.abs(df_apu['datetime'] - x_apu)).idxmin()
+                            y1_value = df_apu.iloc[idx, 4]
+                            y2_value = df_apu.iloc[idx, 6]
+                            y3_value = df_apu.iloc[idx, 8]
+                            self.output_label.setText(f"График АПУ:  \nTime: {df_apu.iloc[idx, 0]} {df_apu.iloc[idx, 1]} \nParam3: {y1_value} \nParam4: {y2_value} \nParam5: {y3_value}")
+                        except Exception as e:
+                            print(f"Ошибка при наведении на график АПУ: {e}")
+
+                elif event.inaxes == self.ax2:  # Наведение на график БВС
+                    x = event.xdata
+                    if x is not None:
+                        try:
+                            x_bvs = pd.to_datetime(mdates.num2date(x)).tz_localize(None)
+                            idx = (np.abs(df_bvs['datetime'] - x_bvs)).idxmin()
+                            y1_value = df_bvs.iloc[idx, 4]
+                            y2_value = df_bvs.iloc[idx, 6]
+                            y3_value = df_bvs.iloc[idx, 8]
+                            self.output_label.setText(f"График БВС:  \nTime: {df_bvs.iloc[idx, 0]} {df_bvs.iloc[idx, 1]} \nParam3: {y1_value} \nParam4: {y2_value} \nParam5: {y3_value}")
+                        except Exception as e:
+                            print(f"Ошибка при наведении на график БВС: {e}")
+
+            self.canvas1.mpl_connect('motion_notify_event', on_hover)
+            self.canvas2.mpl_connect('motion_notify_event', on_hover)
+
+            self.show_message("Графики успешно построены.")
+        else:
+            self.show_message("Файл не был выбран для построения графиков.")
+
+
+    def clean_numeric_columns(self, df, column_indices):
+        # Очистка и приведение столбцов к числовому виду
+        for index in column_indices:
+            df = df[df.iloc[:, index].apply(lambda x: isinstance(x, (int, float)) or (isinstance(x, str) and x.isdigit()))]
+            df.iloc[:, index] = pd.to_numeric(df.iloc[:, index], errors='coerce')
+            df = df.dropna(subset=[df.columns[index]])
+        return df
+
+    def convert_columns_to_numeric(self, df, column_indices):
+        # Преобразование указанных столбцов в числовой формат
+        df.iloc[:, column_indices] = df.iloc[:, column_indices].apply(pd.to_numeric, errors='coerce')
+        return df
+
+    def save_block_to_excel(self, df, block_type, sheet_name, writer):
+        # Фильтрация и сохранение блока данных в Excel
+        block_df = df[df.iloc[:, 2].astype(int) == block_type]
+        block_df = block_df.iloc[:, [0, 1, 2, 6, 7, 8, 9, 10, 11]]  # Выбор нужных столбцов
+        block_df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+
+    def show_message_g(self, message):
+        self.output_label.setText(f"Вывод: {message}")
+
+    def show_message(self, message):
+        self.message_output.setText(f"Сообщение: {message}")
+
+    def show_error_message(self, message):
+        self.message_output.setText(f"Ошибка: {message}")
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
